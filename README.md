@@ -1,2 +1,2 @@
 # FCTRL-tools
-Remote control
+A remote control tool based on MQTT
