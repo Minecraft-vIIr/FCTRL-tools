@@ -1,11 +1,9 @@
 import paho.mqtt.client as mqtt_client
-import socket
 import os
 import sys
 import hashlib
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
-from rich.progress import track
 import time
 
 systype = ("windows" if os.name == "nt" else "unix")
