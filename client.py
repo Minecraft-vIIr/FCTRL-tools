@@ -104,24 +104,6 @@ def on_message(client, userdata, msg):
 def send(client:mqtt_client.Client, topic, id, content:bytes, qos=0):
     client.publish(topic, encrypt(id.encode() + b" " + content), qos=qos)
 
-def send_data(client_socket, data):
-    data_length = len(data)
-    client_socket.send(data_length.to_bytes(4, "big"))
-    client_socket.send(data)
-
-def receive_data(client_socket, file=None):
-    if file:
-        data_length = int.from_bytes(client_socket.recv(4), "big")
-        splitpart = [data_length // 100] * 99
-        splitpart.append((data_length - sum(splitpart)) * 4)
-        data = b""
-        for i in track(splitpart, description=file):
-            data += client_socket.recv(i)
-    else:
-        data_length = int.from_bytes(client_socket.recv(4), "big")
-        data = client_socket.recv(data_length)
-    return data
-
 client = mqtt_client.Client()
 client.on_connect = on_connect
 client.on_message = on_message
@@ -138,85 +120,7 @@ if not connected:
 print()
 
 while True:
-    if target.startswith("#"): # socket
-        try:
-            if todo_list:
-                cmd = todo_list[0]
-                todo_list = todo_list[1:]
-                print(f"\033[1;32m[script] {cmd}")
-            else:
-                cmd = input(f"\033[1;32m{target}>")
-            
-            if cmd.lower() in ["cls", "clear"]:
-                os.system("cls" if os.name == "nt" else "clear")
-            elif cmd.startswith("#"):
-                script_name = cmd[1:]
-                
-                try:
-                    script = open(fr"{app_path}\script\{script_name}.txt", "r").read().split("\n")
-
-                    for line in script:
-                        todo_list.append(line)
-                except FileNotFoundError:
-                    print("\033[1;31mScript not found. ")
-                print()
-            elif cmd.startswith("$"):
-                if len(cmd) == 1:
-                    print("\033[1;31mUsage: $<filepath>")
-                else:
-                    file_path = cmd[1:]
-                    if file_path[0] == file_path[-1] == '"':
-                        file_path = file_path[1:-1]
-                    if os.path.isfile(file_path):
-                        send_data(client_socket, b"c2t")
-                        file_data = open(file_path, "rb").read()
-                        send_data(client_socket, file_path.split(r"\ "[:-1])[-1].encode()) # filename
-                        send_data(client_socket, file_data)
-                        for i in track(range(100), description=file_path.split(r"\ "[:-1])[-1]):
-                            receive_data(client_socket)
-                        print("\033[1;32m", end="")
-                        print(receive_data(client_socket).decode())
-                    else:
-                        print("\033[1;31mFile is not exists. ")
-                print()
-            elif cmd.startswith("!"):
-                if len(cmd) == 1:
-                    print("\033[1;31mUsage: !<filepath>")
-                else:
-                    file_path = cmd[1:]
-                    send_data(client_socket, b"t2c")
-                    if file_path[0] == file_path[-1] == '"':
-                        file_path = file_path[1:-1]
-                    send_data(client_socket, file_path.encode())
-                    file_name = receive_data(client_socket).decode()
-                    if not file_name == "File is not exists. ":
-                        file_data = receive_data(client_socket, file_name)
-                        with open(f"{file_save_path}/{file_name}", "wb") as f:
-                            f.write(file_data)
-                        f.close()
-
-                        if systype == "windows":
-                            print(f'\033[1;32mReceived, path: "{file_save_path}\{file_name}". ')
-                        else:
-                            print(f'\033[1;32mReceived, path: "{file_save_path}/{file_name}". ')
-                    else:
-                        print("\033[1;31m", end="")
-                        print(file_name)
-                print()
-            else:
-                send_data(client_socket, cmd.encode())
-                if cmd.lower() in ["disconnect", "exit"]:
-                    target = ""
-                else:
-                    output = receive_data(client_socket).decode()
-                    if output.split("<stderr>")[0] == "":
-                        print("\033[1;31m", end="")
-                        output = output.split("<stderr>")[-1]
-                    print(output)
-        except Exception as err:
-            print("\033[1;31mTarget disconnected.")
-            target = ""
-    elif target: # MQTT
+    if target:
         if todo_list:
             cmd = todo_list[0]
             todo_list = todo_list[1:]
@@ -265,38 +169,20 @@ while True:
         if cmd == "":
             pass
         elif cmd.lower().split()[0] == "conn":
-            if " ".join(cmd.split(" ")[1:]).startswith("#"): # socket
-                try:
-                    client_socket = socket.socket()
+            if connected:
+                online_list = {}
 
-                    host = " ".join(cmd.split(" ")[1:])[1:]
-                    if host.lower() == "localhost":
-                        host = socket.gethostbyname(socket.gethostname())
-                    client_socket.connect((host, port))
-
-                    target = "#" + host
-                except Exception as err:
-                    if "11001" in str(err):
-                        print(f'\033[1;31m"{host}" is not a valid ipv4 address. ')
-                    elif "10061" in str(err):
-                        print(f"\033[1;31mThe target is not online. ")
-                    else:
-                        print("\033[1;31mError: ", err)
-            else: # MQTT
-                if connected:
-                    online_list = {}
-
-                    time.sleep(1.5)
-                    if " ".join(cmd.split(" ")[1:]) in list(online_list):
-                        target = " ".join(cmd.split(" ")[1:])
-                        session_id = gen_id()
-                    else:
-                        print("\033[1;31mTarget is not online. ")
+                time.sleep(1.5)
+                if " ".join(cmd.split(" ")[1:]) in list(online_list):
+                    target = " ".join(cmd.split(" ")[1:])
+                    session_id = gen_id()
                 else:
-                    print("\033[1;31mMQTT broker not connected yet. ")
-                    if input("\033[0mWait until connect to MQTT broker (yes/no)>").lower() == "yes":
-                        while not connected:
-                            time.sleep(0.5)
+                    print("\033[1;31mTarget is not online. ")
+            else:
+                print("\033[1;31mMQTT broker not connected yet. ")
+                if input("\033[0mWait until connect to MQTT broker (yes/no)>").lower() == "yes":
+                    while not connected:
+                        time.sleep(0.5)
             print()
         elif cmd.lower() == "list":
             if connected:
@@ -317,4 +203,4 @@ while True:
         elif cmd.lower() in ["cls", "clear"]:
             os.system("cls" if os.name == "nt" else "clear")
         elif cmd.lower() in ["exit", "quit"]:
-            os.system(f"taskkill -F -PID {os.getpid()}")
+            os.system(f"taskkill -F -PID {os.getpid()}" if os.name == "nt" else f"kill -9 {os.getpid()}")
