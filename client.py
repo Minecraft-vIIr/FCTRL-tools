@@ -88,10 +88,16 @@ client = mqtt_client.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("public.mqtthq.com", 1883, 60)
-client.loop_start()
-
 print("Connecting to MQTT broker...")
+
+while True:
+    try:
+        client.connect("public.mqtthq.com", 1883, 60)
+        client.loop_start()
+        break
+    except Exception as e:
+        print(f"Could not connect: {e}, retrying...")
+        time.sleep(2)
 
 if not connected:
     while not connected:
