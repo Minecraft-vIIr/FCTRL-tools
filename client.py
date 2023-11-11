@@ -94,9 +94,8 @@ client.loop_start()
 print("Connecting to MQTT broker...")
 
 if not connected:
-    if input("\033[0mWait until connect to MQTT broker (yes/no)>").lower() == "yes":
-        while not connected:
-            time.sleep(0.5)
+    while not connected:
+        time.sleep(0.5)
 print()
 
 while True:
@@ -160,9 +159,8 @@ while True:
                     print("\033[1;31mTarget is not online. ")
             else:
                 print("\033[1;31mMQTT broker not connected yet. ")
-                if input("\033[0mWait until connect to MQTT broker (yes/no)>").lower() == "yes":
-                    while not connected:
-                        time.sleep(0.5)
+                while not connected:
+                    time.sleep(0.5)
             print()
         elif cmd.lower() == "list":
             if connected:
@@ -176,9 +174,8 @@ while True:
                     print("\033[1;31mNo target is online. ")
             else:
                 print("\033[1;31mMQTT broker not connected yet. ")
-                if input("\033[0mWait until connect to MQTT broker (yes/no)>").lower() == "yes":
-                    while not connected:
-                        time.sleep(0.5)
+                while not connected:
+                    time.sleep(0.5)
             print()
         elif cmd.lower() in ["cls", "clear"]:
             os.system("cls" if os.name == "nt" else "clear")
