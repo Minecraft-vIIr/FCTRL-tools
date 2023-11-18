@@ -6,4 +6,13 @@ DONT FORGET TO CHANGE THE KEY AND IV BEFORE YOU START THE TARGET
 key = b"replacewithlen16"
 iv = b"replacewithlen16"
 ```
-<img width="157" alt="image" src="https://github.com/Minecraft-vIIr/FCTRL-tools/assets/97388426/c699d160-2b55-4087-8134-df231b1013c0">
+```
+Connecting to MQTT broker...
+
+>list
+14976@LAPTOP-SF514
+
+>conn 14976@LAPTOP-SF514
+
+14976@LAPTOP-SF514>
+```
