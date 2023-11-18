@@ -7,7 +7,7 @@ key = b"replacewithlen16"
 iv = b"replacewithlen16"
 ```
 ## Usage:
-List target:
+List targets:
 ```
 >list
 14976@LAPTOP-SF514
