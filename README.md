@@ -7,16 +7,14 @@ key = b"replacewithlen16"
 iv = b"replacewithlen16"
 ```
 ## Usage:
-Connection:
+List target:
 ```
-Connecting to MQTT broker...
-
 >list
 14976@LAPTOP-SF514
-
+```
+Connect:
+```
 >conn 14976@LAPTOP-SF514
-
-14976@LAPTOP-SF514>
 ```
 Disconnect:
 ```
