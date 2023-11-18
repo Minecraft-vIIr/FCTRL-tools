@@ -6,7 +6,8 @@ DONT FORGET TO CHANGE THE KEY AND IV BEFORE YOU START THE TARGET
 key = b"replacewithlen16"
 iv = b"replacewithlen16"
 ```
-Usage:
+# Usage:
+Connection:
 ```
 Connecting to MQTT broker...
 
@@ -16,4 +17,12 @@ Connecting to MQTT broker...
 >conn 14976@LAPTOP-SF514
 
 14976@LAPTOP-SF514>
+```
+Disconnect:
+```
+14976@LAPTOP-SF514>disconnect
+```
+Stop target:
+```
+14976@LAPTOP-SF514>exit
 ```
