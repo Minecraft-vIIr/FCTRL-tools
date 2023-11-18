@@ -74,10 +74,10 @@ def on_message(client, userdata, msg):
             elif msg.topic == topic_list["result"]:
                 job_id = msg_json["job_id"]
                 result = msg_json["result"]
+                iserr = msg_json["iserr"]
                 if job_id in job_list:
-                    if result.split("<stderr>")[0] == "":
+                    if iserr:
                         print("\033[1;31m", end="")
-                        result = "".join(result.split("<stderr>")[1:])
                     print(result)
                     job_list.remove(job_id)
             else:
