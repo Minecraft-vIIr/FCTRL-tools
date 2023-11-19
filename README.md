@@ -6,6 +6,7 @@ DONT FORGET TO CHANGE THE KEY AND IV BEFORE YOU START THE TARGET
 key = b"replacewithlen16"
 iv = b"replacewithlen16"
 ```
+Run as `administrator` at the first time to setup on `Windows`
 ## Usage:
 List targets:
 ```
