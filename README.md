@@ -25,5 +25,3 @@ Stop target:
 ```
 14976@LAPTOP-SF514>exit
 ```
-Uninstall:
-Run `uninstall.bat` as `administrator` to uninstall
