@@ -33,7 +33,7 @@ def getpath():
         application_path = os.path.abspath(__file__)
     return application_path
 
-app_path = "\\".join(getpath().split("\\")[:-1])
+app_path = os.path.dirname(getpath())
 
 def encrypt(plaintext:bytes, key=key, iv=iv):
     cipher = AES.new(key, AES.MODE_CBC, iv=iv)
