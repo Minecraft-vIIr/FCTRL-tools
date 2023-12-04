@@ -125,7 +125,7 @@ while True:
             script_name = cmd[1:]
             
             try:
-                script = open(fr"{app_path}\script\{script_name}.txt", "r").read().split("\n")
+                script = open(os.path.join(app_path, "script", f"{script_name}.txt"), "r").read().split("\n")
 
                 for line in script:
                     todo_list.append(line)
