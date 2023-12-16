@@ -70,7 +70,7 @@ def on_message(client, userdata, msg):
         if msg.payload:
             msg_json = json.loads(msg.payload)
             if msg.topic == topic_list["stats"]:
-                online_list[msg_json["client_id"]] = 32
+                online_list[msg_json["client_id"]] = 64
             elif msg.topic == topic_list["result"]:
                 job_id = msg_json["job_id"]
                 result = msg_json["result"]
@@ -149,6 +149,7 @@ while True:
                 if not online_list.get(target, 0)>0:
                     print("\033[1;31mTarget disconnected with broker. ")
                     target = ""
+                    job_list = []
                 elif not connected:
                     print("\033[1;31mDisconnected with broker, retrying...")
                     target = ""
