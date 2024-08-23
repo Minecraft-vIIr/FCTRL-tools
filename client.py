@@ -78,14 +78,23 @@ client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect(broker, port, 60)
-
 def publish_json_message(client, topic, message:json):
     json_message = json.dumps(message)
     iv = get_random_bytes(16)
     encrypted_message = encrypt_message(json_message, key, iv)
     client.publish(topic, encrypted_message)
 
+print("[+] Connecting to broker")
+
+while True:
+    try:
+        client.connect(broker, port, 60)
+        break
+    except Exception as e:
+        print(f"[-] Connection error: {e}. Retrying in 5 seconds...")
+        time.sleep(5)
+
+client.loop_start()
 
 def verify_status():
     global current_target, current_session
@@ -101,9 +110,6 @@ def verify_status():
         time.sleep(0.5)
 
 threading.Thread(target=verify_status, daemon=True).start()
-
-client.loop_start()
-print("[+] Connecting to broker")
 
 while not connected:
     pass
