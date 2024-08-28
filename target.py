@@ -57,6 +57,7 @@ def handle_output(session_id):
 
     while True:
         output = pipe.readline(1)
+        
         if output:
             publish_json_message(client, topic, {
                 "type": "cmdoutput",
