@@ -52,8 +52,8 @@ def decrypt_message(encrypted_message, key):
 def handle_output(session_id):
     pipe = sessions[session_id].stdout
 
-    sys.stdout.write("")
-    sys.stdout.flush()
+    # sys.stdout.write("")
+    # sys.stdout.flush()
 
     while True:
         output = pipe.readline(1)
