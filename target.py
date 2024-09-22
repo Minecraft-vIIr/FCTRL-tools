@@ -101,7 +101,7 @@ def on_message(client, userdata, msg):
                 if json_message.get("type") == "start_session":
                     session_id = json_message.get("session_id")
 
-                    sessions[session_id] = subprocess.Popen(default_shell, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", text=True)
+                    sessions[session_id] = subprocess.Popen(default_shell, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                     threading.Thread(target=handle_output, args=(session_id,), daemon=True).start()
                 if json_message.get("type") == "cmd_input":
                     session_id = json_message.get("session_id")
