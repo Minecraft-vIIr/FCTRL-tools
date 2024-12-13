@@ -16,7 +16,7 @@ current_session = ""
 vaild_targets = {}
 await_confirm = []
 
-key = b"fe333581d9f246ee" # get_random_bytes(16)
+key = b"0000000000000000" # get_random_bytes(16)
 cipher = AES.new(key, AES.MODE_CBC)
 iv = cipher.iv
 
