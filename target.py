@@ -30,7 +30,7 @@ default_shell = "cmd.exe" if os.name == "nt" else "/bin/sh"
 hostname = f"{os.getpid()}@{socket.gethostname()}"
 sessions = {}
 
-key = b"fe333581d9f246ee" # get_random_bytes(16)
+key = b"0000000000000000" # get_random_bytes(16)
 cipher = AES.new(key, AES.MODE_CBC)
 iv = cipher.iv
 
